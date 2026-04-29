@@ -1,71 +1,197 @@
-const express = require('express');
-const axios = require('axios');
+require("dotenv").config();
+
+const express = require("express");
+const axios = require("axios");
+
 const app = express();
+const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || "127.0.0.1";
 
-app.set('view engine', 'pug');
-app.use(express.static(__dirname + '/public'));
+const hubspot = axios.create({
+  baseURL: "https://api.hubapi.com",
+  headers: {
+    Authorization: `Bearer ${process.env.PRIVATE_APP_ACCESS_TOKEN}`,
+    "Content-Type": "application/json"
+  }
+});
+
+const customObjectTypeId = process.env.CUSTOM_OBJECT_TYPE_ID;
+const customObjectLabel = process.env.CUSTOM_OBJECT_LABEL || "Custom Objects";
+const customObjectProperties = (process.env.CUSTOM_OBJECT_PROPERTIES || "name,bio,age")
+  .split(",")
+  .map((property) => property.trim())
+  .filter(Boolean);
+
+app.set("view engine", "pug");
 app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+app.use(express.static("public"));
 
-// * Please DO NOT INCLUDE the private app access token in your repo. Don't do this practicum in your normal account.
-const PRIVATE_APP_ACCESS = '';
+function getMissingConfig() {
+  const missing = [];
 
-// TODO: ROUTE 1 - Create a new app.get route for the homepage to call your custom object data. Pass this data along to the front-end and create a new pug template in the views folder.
+  if (!process.env.PRIVATE_APP_ACCESS_TOKEN) {
+    missing.push("PRIVATE_APP_ACCESS_TOKEN");
+  }
 
-// * Code for Route 1 goes here
+  if (!customObjectTypeId) {
+    missing.push("CUSTOM_OBJECT_TYPE_ID");
+  }
 
-// TODO: ROUTE 2 - Create a new app.get route for the form to create or update new custom object data. Send this data along in the next route.
+  if (customObjectProperties.length < 3) {
+    missing.push("CUSTOM_OBJECT_PROPERTIES");
+  }
 
-// * Code for Route 2 goes here
+  return missing;
+}
 
-// TODO: ROUTE 3 - Create a new app.post route for the custom objects form to create or update your custom object data. Once executed, redirect the user to the homepage.
+function getPropertyLabel(propertyName) {
+  const veterinaryLabels = {
+    name: "Pet Name",
+    breed: "Breed",
+    sex: "Sex",
+    age: "Age",
+    bio: "Medical Notes",
+    category: "Species"
+  };
 
-// * Code for Route 3 goes here
+  if (veterinaryLabels[propertyName.toLowerCase()]) {
+    return veterinaryLabels[propertyName.toLowerCase()];
+  }
 
-/** 
-* * This is sample code to give you a reference for how you should structure your calls. 
+  return propertyName
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 
-* * App.get sample
-app.get('/contacts', async (req, res) => {
-    const contacts = 'https://api.hubspot.com/crm/v3/objects/contacts';
-    const headers = {
-        Authorization: `Bearer ${PRIVATE_APP_ACCESS}`,
-        'Content-Type': 'application/json'
+function getInputType(propertyName) {
+  return propertyName.toLowerCase() === "age" ? "number" : "text";
+}
+
+function getTemplateData(values = {}, errorMessage = null) {
+  return {
+    title: "Add Patient | Veterinary Registry",
+    customObjectLabel,
+    properties: customObjectProperties,
+    propertyLabels: customObjectProperties.map(getPropertyLabel),
+    inputTypes: customObjectProperties.map(getInputType),
+    errorMessage,
+    values
+  };
+}
+
+function getSubmittedProperties(body) {
+  const properties = {};
+
+  for (const propertyName of customObjectProperties) {
+    const value = body[propertyName];
+
+    if (propertyName.toLowerCase() === "age") {
+      const age = Number(value);
+
+      if (!Number.isInteger(age) || age < 0) {
+        return {
+          errorMessage: "Age must be a whole number greater than or equal to 0."
+        };
+      }
+
+      properties[propertyName] = age;
+    } else {
+      properties[propertyName] = value;
     }
-    try {
-        const resp = await axios.get(contacts, { headers });
-        const data = resp.data.results;
-        res.render('contacts', { title: 'Contacts | HubSpot APIs', data });      
-    } catch (error) {
-        console.error(error);
-    }
+  }
+
+  return { properties };
+}
+
+app.get("/", async (req, res) => {
+  const missingConfig = getMissingConfig();
+
+  if (missingConfig.length) {
+    return res.render("homepage", {
+      title: "Patient Registry | Veterinary Clinic",
+      customObjectLabel,
+      properties: customObjectProperties,
+      propertyLabels: customObjectProperties.map(getPropertyLabel),
+      records: [],
+      errorMessage: `Missing environment values: ${missingConfig.join(", ")}`
+    });
+  }
+
+  try {
+    const response = await hubspot.get(`/crm/v3/objects/${customObjectTypeId}`, {
+      params: {
+        limit: 100,
+        properties: customObjectProperties.join(",")
+      }
+    });
+
+    res.render("homepage", {
+      title: "Patient Registry | Veterinary Clinic",
+      customObjectLabel,
+      properties: customObjectProperties,
+      propertyLabels: customObjectProperties.map(getPropertyLabel),
+      records: response.data.results || [],
+      errorMessage: null
+    });
+  } catch (error) {
+    const status = error.response ? ` (${error.response.status})` : "";
+
+    res.render("homepage", {
+      title: "Patient Registry | Veterinary Clinic",
+      customObjectLabel,
+      properties: customObjectProperties,
+      propertyLabels: customObjectProperties.map(getPropertyLabel),
+      records: [],
+      errorMessage: `Unable to load HubSpot records${status}. Check your token, object type ID, and property names.`
+    });
+  }
 });
 
-* * App.post sample
-app.post('/update', async (req, res) => {
-    const update = {
-        properties: {
-            "favorite_book": req.body.newVal
-        }
-    }
-
-    const email = req.query.email;
-    const updateContact = `https://api.hubapi.com/crm/v3/objects/contacts/${email}?idProperty=email`;
-    const headers = {
-        Authorization: `Bearer ${PRIVATE_APP_ACCESS}`,
-        'Content-Type': 'application/json'
-    };
-
-    try { 
-        await axios.patch(updateContact, update, { headers } );
-        res.redirect('back');
-    } catch(err) {
-        console.error(err);
-    }
-
+app.get("/update-cobj", (req, res) => {
+  res.redirect("/patients/new");
 });
-*/
 
+app.get("/patients/new", (req, res) => {
+  res.render("updates", getTemplateData());
+});
 
-// * Localhost
-app.listen(3000, () => console.log('Listening on http://localhost:3000'));
+app.post("/update-cobj", (req, res) => {
+  res.redirect(307, "/patients");
+});
+
+app.post("/patients", async (req, res) => {
+  const missingConfig = getMissingConfig();
+
+  if (missingConfig.length) {
+    return res
+      .status(400)
+      .render("updates", getTemplateData(req.body, `Missing environment values: ${missingConfig.join(", ")}`));
+  }
+
+  const { properties, errorMessage } = getSubmittedProperties(req.body);
+
+  if (errorMessage) {
+    return res.status(400).render("updates", getTemplateData(req.body, errorMessage));
+  }
+
+  try {
+    await hubspot.post(`/crm/v3/objects/${customObjectTypeId}`, { properties });
+    res.redirect("/");
+  } catch (error) {
+    const status = error.response ? ` (${error.response.status})` : "";
+
+    res
+      .status(500)
+      .render(
+        "updates",
+        getTemplateData(
+          req.body,
+          `Unable to create HubSpot record${status}. Check the submitted values and property names.`
+        )
+      );
+  }
+});
+
+app.listen(PORT, HOST, () => {
+  console.log(`Listening on http://${HOST}:${PORT}`);
+});

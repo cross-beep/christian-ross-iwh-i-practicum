@@ -1,0 +1,33 @@
+doctype html
+html(lang="en")
+  head
+    meta(charset="UTF-8")
+    meta(name="viewport", content="width=device-width, initial-scale=1.0")
+    title= title
+    link(rel="stylesheet", href="/css/style.css")
+  body
+    main.page
+      header.page-header
+        div
+          p.eyebrow Veterinary Clinic
+          h1 Add Patient
+        a.text-link(href="/") Back to Patient Registry
+
+      if errorMessage
+        p.alert= errorMessage
+
+      form.form(action="/patients", method="POST")
+        each propertyName, index in properties
+          label.field(for=propertyName)
+            span= propertyLabels[index]
+            input(
+              id=propertyName,
+              name=propertyName,
+              type=inputTypes[index],
+              value=values[propertyName] || "",
+              min=inputTypes[index] === "number" ? "0" : undefined,
+              step=inputTypes[index] === "number" ? "1" : undefined,
+              required
+            )
+
+        button.button(type="submit") Save Patient

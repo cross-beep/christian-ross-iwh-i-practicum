@@ -1,0 +1,33 @@
+doctype html
+html(lang="en")
+  head
+    meta(charset="UTF-8")
+    meta(name="viewport", content="width=device-width, initial-scale=1.0")
+    title= title
+    link(rel="stylesheet", href="/css/style.css")
+  body
+    main.page
+      header.page-header
+        div
+          p.eyebrow Veterinary Clinic
+          h1 Patient Registry
+        a.button(href="/patients/new") Add Patient
+
+      if errorMessage
+        p.alert= errorMessage
+
+      section.table-wrap
+        table
+          thead
+            tr
+              each label in propertyLabels
+                th(scope="col")= label
+          tbody
+            if records.length
+              each record in records
+                tr
+                  each propertyName in properties
+                    td= record.properties[propertyName] || ""
+            else
+              tr
+                td.empty-state(colspan=properties.length) No patients to display yet.
